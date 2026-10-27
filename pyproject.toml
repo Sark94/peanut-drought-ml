@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "peanut-drought-ml"
+version = "0.1.1"
+description = "Nested cross-validation and frozen-panel transcriptomic classification"
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.10"
+authors = [{name = "Frederick Sarkodie Mensah"}, {name = "Muhammed Opoku Gyamfi"}]
+dependencies = ["numpy>=2.0,<3", "pandas>=2.2,<3", "scikit-learn>=1.6,<1.9", "joblib>=1.3,<2", "matplotlib>=3.8,<4"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "build>=1"]
+
+[project.scripts]
+peanutml = "peanutml.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

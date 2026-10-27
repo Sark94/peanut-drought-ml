@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+message: "If you use Peanut Drought ML in research, please cite this software release and the original analysis deposit listed in README.md. A package DOI has not yet been assigned."
+title: "Peanut Drought ML"
+type: software
+version: 0.1.1
+authors:
+  - given-names: Frederick Sarkodie
+    family-names: Mensah
+  - given-names: Muhammed Opoku
+    family-names: Gyamfi
+abstract: "Reusable nested cross-validation, feature recurrence, and frozen-panel evaluation derived from the author's peanut drought ML notebook."
+license: MIT

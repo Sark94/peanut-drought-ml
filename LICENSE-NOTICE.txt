@@ -1,0 +1,31 @@
+Licensing scope and source attribution
+
+The MIT license in LICENSE applies to the package implementation in src/,
+examples, tests and package-authored documentation. The source analysis is
+credited to Frederick Sarkodie Mensah. The package authors are Frederick
+Sarkodie Mensah and Muhammed Opoku Gyamfi.
+
+Original analysis deposit:
+Frederick Sarkodie Mensah (2026). Reproducible Analysis Code for
+"Integrative Transcriptome Meta-Analysis, Co-expression Network Analysis,
+and Machine Learning Computationally Prioritize Drought-Responsive Candidate
+Genes in Peanut". Zenodo, version v1.
+https://doi.org/10.5281/zenodo.23291732
+License shown on that deposit: Creative Commons Attribution 4.0 International.
+https://creativecommons.org/licenses/by/4.0/
+
+Original analysis material retained in provenance/ is excluded from the new
+MIT grant and retains its original CC BY 4.0 terms where covered by that
+deposit. Existing third-party notices and rights in underlying datasets are
+not replaced by this package license. No ownership of third-party datasets
+is asserted. Confirm the provenance of each bundled dataset before release.
+
+Changes from the source notebook include extraction into an installable
+package, command-line and Python APIs, validation checks, tests, documentation
+and a Colab quick start. See docs/CHANGES.md and docs/VALIDATION.md for details
+and limits of tested equivalence. No endorsement by the source datasets'
+authors is implied. The original Zenodo record has not been modified.
+
+Citation requests in CITATION.cff and README.md are scholarly requests, not
+additional restrictions on the MIT-licensed code. The original CC BY material
+retains its attribution requirements.

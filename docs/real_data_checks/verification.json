@@ -1,0 +1,23 @@
+{
+  "numpy": "2.0.2",
+  "pandas": "2.2.2",
+  "sklearn": "1.6.1",
+  "discovery_shape": [
+    42,
+    276
+  ],
+  "tuned_parameters": {
+    "clf__C": 10,
+    "clf__class_weight": null
+  },
+  "final_model_predictions_match_original": true,
+  "fixed_and_tuned_predictions_match": true,
+  "external_counts_match_notebook_outputs": true,
+  "full_nine_model_nested_cv_rerun": false,
+  "source_sha256": {
+    "sark_276_ComBatSeq_VST_for_ML_with_condition.csv": "4d35f4d15de531ecebdccfde91c36e4a3e8baf08c782c05964cd87a3413a7599",
+    "Jiang_external_frozen8_VST.csv": "37a915aee93d23daaa1ab4f833fc847b003cb7c76b2f86c3973250b51c1918b6",
+    "Sun_external_frozen8_VST.csv": "32a730adb7a61d2bc7c9bff3a923fc71fc872f2461993b14cb9408b427a21a04",
+    "Peanut_Drought_ML_Reproducible_Final (1).ipynb": "a2ffef00175437472ee07902672db371e3014122e28c84ca151eefb93d87be59"
+  }
+}

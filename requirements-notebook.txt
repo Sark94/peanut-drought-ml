@@ -1,0 +1,4 @@
+# Versions printed by the source notebook; use Python 3.12 for closest reproduction.
+numpy==2.0.2
+pandas==2.2.2
+scikit-learn==1.6.1

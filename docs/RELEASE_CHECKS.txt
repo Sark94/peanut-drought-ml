@@ -1,0 +1,8 @@
+Local release checks — 2026-10-27
+Python 3.12.14; scikit-learn 1.8.0.
+15 existing tests passed. Scikit-learn emitted penalty-parameter deprecation warnings.
+Wheel and source distribution built successfully.
+Wheel installed into an isolated target directory; synthetic demo completed successfully.
+Notebook schema and every code cell syntax validated.
+Live Colab upload/download interactions have not been executed in this review.
+No full scientific cross-validation reruns performed. Core source unchanged except __version__.

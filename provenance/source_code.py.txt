@@ -1,0 +1,1836 @@
+# CELL 0
+# ==============================
+# Peanut drought ML analysis
+# Reproducible setup
+# ==============================
+
+import sys
+import platform
+import numpy as np
+import pandas as pd
+import sklearn
+
+RANDOM_STATE = 42
+
+print("Python version:", sys.version)
+print("Platform:", platform.platform())
+print("NumPy version:", np.__version__)
+print("Pandas version:", pd.__version__)
+print("scikit-learn version:", sklearn.__version__)
+print("Random state:", RANDOM_STATE)
+
+# CELL 1
+from google.colab import files
+
+uploaded = files.upload()
+
+print("Uploaded files:")
+for name in uploaded.keys():
+    print(name)
+
+# CELL 2
+# ==============================
+# Cell 3: Load and verify dataset
+# ==============================
+
+FILE_NAME = "sark_276_ComBatSeq_VST_for_ML_with_condition.csv"
+
+df = pd.read_csv(FILE_NAME)
+
+print("Dataset shape:", df.shape)
+print("\nFirst 5 rows:")
+display(df.head())
+
+print("\nLast 10 column names:")
+print(df.columns[-10:].tolist())
+
+print("\nCondition counts:")
+print(df["Condition"].value_counts())
+
+print("\nBatch counts:")
+print(df["Batch"].value_counts())
+
+print("\nMissing values in entire dataset:", df.isna().sum().sum())
+
+print("\nObject/string columns:")
+print(df.select_dtypes(include="object").columns.tolist())
+
+# CELL 3
+# ==============================
+# Cell 4: Define predictors and outcome
+# ==============================
+
+from sklearn.preprocessing import LabelEncoder
+
+# Sample IDs retained separately for later fold-level records
+sample_ids = df["Unnamed: 0"].copy()
+
+# 276 gene-expression predictors only
+X = df.drop(columns=["Unnamed: 0", "Condition", "Batch"]).copy()
+
+# Outcome
+y = df["Condition"].copy()
+
+# Encode outcome
+label_encoder = LabelEncoder()
+y_encoded = label_encoder.fit_transform(y)
+
+print("X shape:", X.shape)
+print("Number of samples:", X.shape[0])
+print("Number of gene predictors:", X.shape[1])
+
+print("\nClass encoding:")
+for label, code in zip(label_encoder.classes_,
+                       label_encoder.transform(label_encoder.classes_)):
+    print(f"{label} = {code}")
+
+print("\nClass counts:")
+print(y.value_counts())
+
+print("\nAll predictors numeric:", X.dtypes.apply(
+    lambda x: np.issubdtype(x, np.number)).all())
+
+print("Missing predictor values:", X.isna().sum().sum())
+
+assert X.shape == (42, 276), "ERROR: Expected 42 samples × 276 genes"
+assert X.isna().sum().sum() == 0, "ERROR: Missing values detected"
+
+print("\n✓ Dataset is ready for machine learning.")
+
+# CELL 4
+# ==========================================
+# Cell 5: Nested repeated cross-validation
+# ==========================================
+
+from sklearn.model_selection import RepeatedStratifiedKFold
+
+# Outer CV: unbiased model-performance estimation
+outer_cv = RepeatedStratifiedKFold(
+    n_splits=5,
+    n_repeats=10,
+    random_state=RANDOM_STATE
+)
+
+# Inner CV: hyperparameter tuning / feature-number selection
+inner_cv = RepeatedStratifiedKFold(
+    n_splits=4,
+    n_repeats=3,
+    random_state=RANDOM_STATE
+)
+
+print("Nested CV design")
+print("----------------")
+print("Outer CV: 5 folds × 10 repeats")
+print("Outer test evaluations:", outer_cv.get_n_splits(X, y_encoded))
+
+print("\nInner CV: 4 folds × 3 repeats")
+print("Inner evaluations per outer training set:",
+      inner_cv.get_n_splits())
+
+print("\nRandom state:", RANDOM_STATE)
+
+assert outer_cv.get_n_splits(X, y_encoded) == 50
+assert inner_cv.get_n_splits() == 12
+
+print("\n✓ Nested repeated CV configuration verified.")
+
+# CELL 5
+# ==========================================
+# Cell 6: Define ANOVA pipelines and grids
+# ==========================================
+
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.feature_selection import SelectKBest, f_classif
+from sklearn.linear_model import LogisticRegression
+from sklearn.svm import SVC, LinearSVC
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.neighbors import KNeighborsClassifier
+
+K_VALUES = [5, 10, 15, 20, 30, 40, 50]
+
+# Logistic Regression
+pipe_lr = Pipeline([
+    ("scale", StandardScaler()),
+    ("select", SelectKBest(score_func=f_classif)),
+    ("clf", LogisticRegression(
+        penalty="l2",
+        solver="liblinear",
+        max_iter=5000,
+        random_state=RANDOM_STATE
+    ))
+])
+
+param_lr = {
+    "select__k": K_VALUES,
+    "clf__C": [0.01, 0.1, 1, 10, 100],
+    "clf__class_weight": [None, "balanced"]
+}
+
+# Linear SVM
+pipe_lsvm = Pipeline([
+    ("scale", StandardScaler()),
+    ("select", SelectKBest(score_func=f_classif)),
+    ("clf", SVC(kernel="linear", probability=True, random_state=RANDOM_STATE))
+])
+
+param_lsvm = {
+    "select__k": K_VALUES,
+    "clf__C": [0.01, 0.1, 1, 10, 100],
+    "clf__class_weight": [None, "balanced"]
+}
+
+# RBF-SVM
+pipe_rbf = Pipeline([
+    ("scale", StandardScaler()),
+    ("select", SelectKBest(score_func=f_classif)),
+    ("clf", SVC(kernel="rbf", probability=True, random_state=RANDOM_STATE))
+])
+
+param_rbf = {
+    "select__k": K_VALUES,
+    "clf__C": [0.01, 0.1, 1, 10, 100],
+    "clf__gamma": ["scale", "auto", 0.001, 0.01, 0.1, 1],
+    "clf__class_weight": [None, "balanced"]
+}
+
+# Random Forest
+pipe_rf = Pipeline([
+    ("select", SelectKBest(score_func=f_classif)),
+    ("clf", RandomForestClassifier(random_state=RANDOM_STATE))
+])
+
+param_rf = {
+    "select__k": K_VALUES,
+    "clf__n_estimators": [200, 500],
+    "clf__max_depth": [None, 3, 5, 10],
+    "clf__min_samples_split": [2, 4, 6],
+    "clf__min_samples_leaf": [1, 2, 4],
+    "clf__max_features": ["sqrt", "log2"],
+    "clf__class_weight": [None, "balanced"]
+}
+
+# KNN
+pipe_knn = Pipeline([
+    ("scale", StandardScaler()),
+    ("select", SelectKBest(score_func=f_classif)),
+    ("clf", KNeighborsClassifier())
+])
+
+param_knn = {
+    "select__k": K_VALUES,
+    "clf__n_neighbors": [1, 3, 5, 7, 9],
+    "clf__weights": ["uniform", "distance"],
+    "clf__metric": ["euclidean", "manhattan"]
+}
+
+print("✓ ANOVA pipelines and parameter grids defined.")
+
+# CELL 6
+# ==========================================
+# Cell 7: Reusable nested-CV evaluation function
+# ==========================================
+
+import json
+from collections import Counter
+
+from sklearn.model_selection import GridSearchCV
+from sklearn.metrics import (
+    balanced_accuracy_score,
+    f1_score,
+    matthews_corrcoef,
+    roc_auc_score
+)
+
+def run_nested_cv(
+    model_name,
+    pipeline,
+    param_grid,
+    X,
+    y_encoded,
+    sample_ids,
+    outer_cv,
+    inner_cv
+):
+    fold_results = []
+    prediction_records = []
+    selected_gene_records = []
+    hyperparameter_records = []
+
+    print(f"\nStarting nested CV for {model_name}...")
+
+    for fold, (train_idx, test_idx) in enumerate(
+        outer_cv.split(X, y_encoded), start=1
+    ):
+        X_train = X.iloc[train_idx]
+        X_test  = X.iloc[test_idx]
+
+        y_train = y_encoded[train_idx]
+        y_test  = y_encoded[test_idx]
+
+        # Inner-CV tuning
+        grid = GridSearchCV(
+            estimator=pipeline,
+            param_grid=param_grid,
+            scoring="balanced_accuracy",
+            cv=inner_cv,
+            n_jobs=-1,
+            refit=True,
+            verbose=0
+        )
+
+        grid.fit(X_train, y_train)
+
+        best_model = grid.best_estimator_
+
+        # Outer-test predictions
+        y_pred = best_model.predict(X_test)
+
+        if hasattr(best_model, "predict_proba"):
+            y_score = best_model.predict_proba(X_test)[:, 1]
+        elif hasattr(best_model, "decision_function"):
+            y_score = best_model.decision_function(X_test)
+        else:
+            y_score = None
+
+        # Metrics
+        bal_acc = balanced_accuracy_score(y_test, y_pred)
+        f1 = f1_score(y_test, y_pred)
+        mcc = matthews_corrcoef(y_test, y_pred)
+
+        if y_score is not None:
+            auc = roc_auc_score(y_test, y_score)
+        else:
+            auc = np.nan
+
+        fold_results.append({
+            "Model": model_name,
+            "Outer_Fold": fold,
+            "Balanced_Accuracy": bal_acc,
+            "F1_Score": f1,
+            "MCC": mcc,
+            "ROC_AUC": auc,
+            "Best_Inner_Balanced_Accuracy": grid.best_score_,
+            "Selected_k": grid.best_params_.get("select__k", np.nan)
+        })
+
+        # Best hyperparameters
+        hyperparameter_records.append({
+            "Model": model_name,
+            "Outer_Fold": fold,
+            "Best_Params": json.dumps(grid.best_params_)
+        })
+
+        # Selected genes
+        selector = best_model.named_steps["select"]
+        selected_mask = selector.get_support()
+        selected_genes = X.columns[selected_mask].tolist()
+
+        for gene in selected_genes:
+            selected_gene_records.append({
+                "Model": model_name,
+                "Outer_Fold": fold,
+                "Gene": gene
+            })
+
+        # Outer-test predictions
+        for j, idx in enumerate(test_idx):
+            prediction_records.append({
+                "Model": model_name,
+                "Outer_Fold": fold,
+                "Sample_ID": sample_ids.iloc[idx],
+                "True_Label": int(y_encoded[idx]),
+                "Predicted_Label": int(y_pred[j]),
+                "Score": float(y_score[j]) if y_score is not None else np.nan
+            })
+
+        print(
+            f"{model_name} | fold {fold:02d}/50 | "
+            f"BA={bal_acc:.4f} | F1={f1:.4f} | MCC={mcc:.4f}"
+        )
+
+    # Convert to DataFrames
+    fold_df = pd.DataFrame(fold_results)
+    pred_df = pd.DataFrame(prediction_records)
+    genes_df = pd.DataFrame(selected_gene_records)
+    params_df = pd.DataFrame(hyperparameter_records)
+
+    # Summary
+    summary_df = pd.DataFrame({
+        "Model": [model_name],
+        "Balanced_Accuracy_Mean": [fold_df["Balanced_Accuracy"].mean()],
+        "Balanced_Accuracy_SD": [fold_df["Balanced_Accuracy"].std(ddof=1)],
+        "F1_Mean": [fold_df["F1_Score"].mean()],
+        "F1_SD": [fold_df["F1_Score"].std(ddof=1)],
+        "MCC_Mean": [fold_df["MCC"].mean()],
+        "MCC_SD": [fold_df["MCC"].std(ddof=1)],
+        "ROC_AUC_Mean": [fold_df["ROC_AUC"].mean()],
+        "ROC_AUC_SD": [fold_df["ROC_AUC"].std(ddof=1)]
+    })
+
+    # Gene-selection frequency
+    gene_freq_df = (
+        genes_df.groupby(["Model", "Gene"])
+        .size()
+        .reset_index(name="Selection_Count")
+    )
+
+    gene_freq_df["Selection_Percentage"] = (
+        gene_freq_df["Selection_Count"] / 50 * 100
+    )
+
+    gene_freq_df = gene_freq_df.sort_values(
+        ["Selection_Count", "Gene"],
+        ascending=[False, True]
+    )
+
+    # Save immediately
+    safe_name = model_name.replace(" ", "_").replace("-", "_")
+
+    fold_df.to_csv(f"{safe_name}_outer_fold_results.csv", index=False)
+    pred_df.to_csv(f"{safe_name}_outer_predictions.csv", index=False)
+    genes_df.to_csv(f"{safe_name}_selected_genes_by_fold.csv", index=False)
+    params_df.to_csv(f"{safe_name}_best_hyperparameters.csv", index=False)
+    summary_df.to_csv(f"{safe_name}_summary_mean_SD.csv", index=False)
+    gene_freq_df.to_csv(f"{safe_name}_gene_selection_frequency.csv", index=False)
+
+    print(f"\n✓ {model_name} complete.")
+    print(summary_df)
+
+    return {
+        "fold_results": fold_df,
+        "predictions": pred_df,
+        "selected_genes": genes_df,
+        "best_params": params_df,
+        "summary": summary_df,
+        "gene_frequency": gene_freq_df
+    }
+
+print("✓ Nested-CV function defined.")
+
+# CELL 7
+# ==========================================
+# Cell 7: Reusable nested-CV evaluation function
+# ==========================================
+
+import json
+from collections import Counter
+
+from sklearn.model_selection import GridSearchCV
+from sklearn.metrics import (
+    balanced_accuracy_score,
+    f1_score,
+    matthews_corrcoef,
+    roc_auc_score
+)
+
+def run_nested_cv(
+    model_name,
+    pipeline,
+    param_grid,
+    X,
+    y_encoded,
+    sample_ids,
+    outer_cv,
+    inner_cv
+):
+    fold_results = []
+    prediction_records = []
+    selected_gene_records = []
+    hyperparameter_records = []
+
+    print(f"\nStarting nested CV for {model_name}...")
+
+    for fold, (train_idx, test_idx) in enumerate(
+        outer_cv.split(X, y_encoded), start=1
+    ):
+        X_train = X.iloc[train_idx]
+        X_test  = X.iloc[test_idx]
+
+        y_train = y_encoded[train_idx]
+        y_test  = y_encoded[test_idx]
+
+        # Inner-CV tuning
+        grid = GridSearchCV(
+            estimator=pipeline,
+            param_grid=param_grid,
+            scoring="balanced_accuracy",
+            cv=inner_cv,
+            n_jobs=-1,
+            refit=True,
+            verbose=0
+        )
+
+        grid.fit(X_train, y_train)
+
+        best_model = grid.best_estimator_
+
+        # Outer-test predictions
+        y_pred = best_model.predict(X_test)
+
+        if hasattr(best_model, "predict_proba"):
+            y_score = best_model.predict_proba(X_test)[:, 1]
+        elif hasattr(best_model, "decision_function"):
+            y_score = best_model.decision_function(X_test)
+        else:
+            y_score = None
+
+        # Metrics
+        bal_acc = balanced_accuracy_score(y_test, y_pred)
+        f1 = f1_score(y_test, y_pred)
+        mcc = matthews_corrcoef(y_test, y_pred)
+
+        if y_score is not None:
+            auc = roc_auc_score(y_test, y_score)
+        else:
+            auc = np.nan
+
+        fold_results.append({
+            "Model": model_name,
+            "Outer_Fold": fold,
+            "Balanced_Accuracy": bal_acc,
+            "F1_Score": f1,
+            "MCC": mcc,
+            "ROC_AUC": auc,
+            "Best_Inner_Balanced_Accuracy": grid.best_score_,
+            "Selected_k": grid.best_params_.get("select__k", np.nan)
+        })
+
+        # Best hyperparameters
+        hyperparameter_records.append({
+            "Model": model_name,
+            "Outer_Fold": fold,
+            "Best_Params": json.dumps(grid.best_params_)
+        })
+
+        # Selected genes
+        selector = best_model.named_steps["select"]
+        selected_mask = selector.get_support()
+        selected_genes = X.columns[selected_mask].tolist()
+
+        for gene in selected_genes:
+            selected_gene_records.append({
+                "Model": model_name,
+                "Outer_Fold": fold,
+                "Gene": gene
+            })
+
+        # Outer-test predictions
+        for j, idx in enumerate(test_idx):
+            prediction_records.append({
+                "Model": model_name,
+                "Outer_Fold": fold,
+                "Sample_ID": sample_ids.iloc[idx],
+                "True_Label": int(y_encoded[idx]),
+                "Predicted_Label": int(y_pred[j]),
+                "Score": float(y_score[j]) if y_score is not None else np.nan
+            })
+
+        print(
+            f"{model_name} | fold {fold:02d}/50 | "
+            f"BA={bal_acc:.4f} | F1={f1:.4f} | MCC={mcc:.4f}"
+        )
+
+    # Convert to DataFrames
+    fold_df = pd.DataFrame(fold_results)
+    pred_df = pd.DataFrame(prediction_records)
+    genes_df = pd.DataFrame(selected_gene_records)
+    params_df = pd.DataFrame(hyperparameter_records)
+
+    # Summary
+    summary_df = pd.DataFrame({
+        "Model": [model_name],
+        "Balanced_Accuracy_Mean": [fold_df["Balanced_Accuracy"].mean()],
+        "Balanced_Accuracy_SD": [fold_df["Balanced_Accuracy"].std(ddof=1)],
+        "F1_Mean": [fold_df["F1_Score"].mean()],
+        "F1_SD": [fold_df["F1_Score"].std(ddof=1)],
+        "MCC_Mean": [fold_df["MCC"].mean()],
+        "MCC_SD": [fold_df["MCC"].std(ddof=1)],
+        "ROC_AUC_Mean": [fold_df["ROC_AUC"].mean()],
+        "ROC_AUC_SD": [fold_df["ROC_AUC"].std(ddof=1)]
+    })
+
+    # Gene-selection frequency
+    gene_freq_df = (
+        genes_df.groupby(["Model", "Gene"])
+        .size()
+        .reset_index(name="Selection_Count")
+    )
+
+    gene_freq_df["Selection_Percentage"] = (
+        gene_freq_df["Selection_Count"] / 50 * 100
+    )
+
+    gene_freq_df = gene_freq_df.sort_values(
+        ["Selection_Count", "Gene"],
+        ascending=[False, True]
+    )
+
+    # Save immediately
+    safe_name = model_name.replace(" ", "_").replace("-", "_")
+
+    fold_df.to_csv(f"{safe_name}_outer_fold_results.csv", index=False)
+    pred_df.to_csv(f"{safe_name}_outer_predictions.csv", index=False)
+    genes_df.to_csv(f"{safe_name}_selected_genes_by_fold.csv", index=False)
+    params_df.to_csv(f"{safe_name}_best_hyperparameters.csv", index=False)
+    summary_df.to_csv(f"{safe_name}_summary_mean_SD.csv", index=False)
+    gene_freq_df.to_csv(f"{safe_name}_gene_selection_frequency.csv", index=False)
+
+    print(f"\n✓ {model_name} complete.")
+    print(summary_df)
+
+    return {
+        "fold_results": fold_df,
+        "predictions": pred_df,
+        "selected_genes": genes_df,
+        "best_params": params_df,
+        "summary": summary_df,
+        "gene_frequency": gene_freq_df
+    }
+
+print("✓ Nested-CV function defined.")
+
+# CELL 8
+# ==========================================
+# Cell 8: ANOVA + Logistic Regression
+# ==========================================
+
+results_lr = run_nested_cv(
+    model_name="Logistic Regression",
+    pipeline=pipe_lr,
+    param_grid=param_lr,
+    X=X,
+    y_encoded=y_encoded,
+    sample_ids=sample_ids,
+    outer_cv=outer_cv,
+    inner_cv=inner_cv
+)
+
+# CELL 9
+# ==========================================
+# Cell 9: ANOVA + Linear SVM
+# ==========================================
+
+results_lsvm = run_nested_cv(
+    model_name="Linear SVM",
+    pipeline=pipe_lsvm,
+    param_grid=param_lsvm,
+    X=X,
+    y_encoded=y_encoded,
+    sample_ids=sample_ids,
+    outer_cv=outer_cv,
+    inner_cv=inner_cv
+)
+
+# CELL 10
+# ==========================================
+# Cell 10: ANOVA + Random Forest
+# ==========================================
+
+results_rf = run_nested_cv(
+    model_name="Random Forest",
+    pipeline=pipe_rf,
+    param_grid=param_rf,
+    X=X,
+    y_encoded=y_encoded,
+    sample_ids=sample_ids,
+    outer_cv=outer_cv,
+    inner_cv=inner_cv
+)
+
+# CELL 11
+# ==========================================
+# Cell 11: ANOVA + KNN
+# ==========================================
+
+results_knn = run_nested_cv(
+    model_name="KNN",
+    pipeline=pipe_knn,
+    param_grid=param_knn,
+    X=X,
+    y_encoded=y_encoded,
+    sample_ids=sample_ids,
+    outer_cv=outer_cv,
+    inner_cv=inner_cv
+)
+
+# CELL 12
+# ==========================================
+# Cell 12: ANOVA + RBF-SVM
+# ==========================================
+
+results_rbf = run_nested_cv(
+    model_name="RBF-SVM",
+    pipeline=pipe_rbf,
+    param_grid=param_rbf,
+    X=X,
+    y_encoded=y_encoded,
+    sample_ids=sample_ids,
+    outer_cv=outer_cv,
+    inner_cv=inner_cv
+)
+
+# CELL 13
+# ==========================================
+# Cell 13: PCA-based gene-ranking selector
+# ==========================================
+
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+
+class PCAGeneSelector(BaseEstimator, TransformerMixin):
+    """
+    Rank genes using PCA loadings calculated from training data only.
+
+    Steps:
+    1. Standardize training data.
+    2. Fit PCA retaining enough components to explain >=80% variance.
+    3. Calculate gene importance:
+       sum(|loading| × explained variance ratio)
+       across retained PCs.
+    4. Retain the top k genes.
+    """
+
+    def __init__(self, k=20, variance_threshold=0.80):
+        self.k = k
+        self.variance_threshold = variance_threshold
+
+    def fit(self, X, y=None):
+
+        # Preserve feature names when X is a DataFrame
+        if hasattr(X, "columns"):
+            self.feature_names_in_ = np.array(X.columns)
+        else:
+            self.feature_names_in_ = np.array(
+                [f"feature_{i}" for i in range(X.shape[1])]
+            )
+
+        # Standardize TRAINING data only
+        self.scaler_ = StandardScaler()
+        X_scaled = self.scaler_.fit_transform(X)
+
+        # Retain minimum PCs explaining ~80% cumulative variance
+        self.pca_ = PCA(
+            n_components=self.variance_threshold,
+            svd_solver="full"
+        )
+
+        self.pca_.fit(X_scaled)
+
+        # PCA loadings: genes × retained PCs
+        loadings = self.pca_.components_.T
+
+        # Weight absolute loadings by variance explained by each PC
+        self.gene_scores_ = np.sum(
+            np.abs(loadings) * self.pca_.explained_variance_ratio_,
+            axis=1
+        )
+
+        # Rank genes from highest to lowest PCA importance
+        ranked_indices = np.argsort(self.gene_scores_)[::-1]
+
+        # Retain top k
+        self.selected_indices_ = ranked_indices[:self.k]
+
+        self.support_mask_ = np.zeros(
+            X.shape[1],
+            dtype=bool
+        )
+        self.support_mask_[self.selected_indices_] = True
+
+        self.n_components_retained_ = self.pca_.n_components_
+        self.cumulative_variance_ = (
+            self.pca_.explained_variance_ratio_.sum()
+        )
+
+        return self
+
+    def transform(self, X):
+        # Return selected ORIGINAL gene-expression columns
+        if hasattr(X, "iloc"):
+            return X.iloc[:, self.selected_indices_]
+        return X[:, self.selected_indices_]
+
+    def get_support(self):
+        return self.support_mask_
+
+
+print("✓ PCA gene-ranking selector defined.")
+
+# CELL 14
+# ==========================================
+# Cell 14: Define PCA-based pipelines
+# ==========================================
+
+# Logistic Regression
+pipe_pca_lr = Pipeline([
+    ("select", PCAGeneSelector(variance_threshold=0.80)),
+    ("scale", StandardScaler()),
+    ("clf", LogisticRegression(
+        penalty="l2",
+        solver="liblinear",
+        max_iter=5000,
+        random_state=RANDOM_STATE
+    ))
+])
+
+param_pca_lr = {
+    "select__k": K_VALUES,
+    "clf__C": [0.01, 0.1, 1, 10, 100],
+    "clf__class_weight": [None, "balanced"]
+}
+
+# Linear SVM
+pipe_pca_lsvm = Pipeline([
+    ("select", PCAGeneSelector(variance_threshold=0.80)),
+    ("scale", StandardScaler()),
+    ("clf", SVC(
+        kernel="linear",
+        probability=True,
+        random_state=RANDOM_STATE
+    ))
+])
+
+param_pca_lsvm = {
+    "select__k": K_VALUES,
+    "clf__C": [0.01, 0.1, 1, 10, 100],
+    "clf__class_weight": [None, "balanced"]
+}
+
+# RBF-SVM
+pipe_pca_rbf = Pipeline([
+    ("select", PCAGeneSelector(variance_threshold=0.80)),
+    ("scale", StandardScaler()),
+    ("clf", SVC(
+        kernel="rbf",
+        probability=True,
+        random_state=RANDOM_STATE
+    ))
+])
+
+param_pca_rbf = {
+    "select__k": K_VALUES,
+    "clf__C": [0.01, 0.1, 1, 10, 100],
+    "clf__gamma": ["scale", "auto", 0.001, 0.01, 0.1, 1],
+    "clf__class_weight": [None, "balanced"]
+}
+
+# KNN
+pipe_pca_knn = Pipeline([
+    ("select", PCAGeneSelector(variance_threshold=0.80)),
+    ("scale", StandardScaler()),
+    ("clf", KNeighborsClassifier())
+])
+
+param_pca_knn = {
+    "select__k": K_VALUES,
+    "clf__n_neighbors": [1, 3, 5, 7, 9],
+    "clf__weights": ["uniform", "distance"],
+    "clf__metric": ["euclidean", "manhattan"]
+}
+
+print("✓ PCA-based pipelines and parameter grids defined.")
+
+# CELL 15
+# ==========================================
+# Cell 15: PCA + Logistic Regression
+# ==========================================
+
+results_pca_lr = run_nested_cv(
+    model_name="PCA Logistic Regression",
+    pipeline=pipe_pca_lr,
+    param_grid=param_pca_lr,
+    X=X,
+    y_encoded=y_encoded,
+    sample_ids=sample_ids,
+    outer_cv=outer_cv,
+    inner_cv=inner_cv
+)
+
+# CELL 16
+# ==========================================
+# Cell 16: PCA + Linear SVM
+# ==========================================
+
+results_pca_lsvm = run_nested_cv(
+    model_name="PCA Linear SVM",
+    pipeline=pipe_pca_lsvm,
+    param_grid=param_pca_lsvm,
+    X=X,
+    y_encoded=y_encoded,
+    sample_ids=sample_ids,
+    outer_cv=outer_cv,
+    inner_cv=inner_cv
+)
+
+# CELL 17
+# ==========================================
+# PCA + RBF-SVM
+# ==========================================
+
+results_pca_rbf = run_nested_cv(
+    model_name="PCA RBF-SVM",
+    pipeline=pipe_pca_rbf,
+    param_grid=param_pca_rbf,
+    X=X,
+    y_encoded=y_encoded,
+    sample_ids=sample_ids,
+    outer_cv=outer_cv,
+    inner_cv=inner_cv
+)
+
+# CELL 18
+# ==========================================
+# PCA + KNN
+# ==========================================
+
+results_pca_knn = run_nested_cv(
+    model_name="PCA KNN",
+    pipeline=pipe_pca_knn,
+    param_grid=param_pca_knn,
+    X=X,
+    y_encoded=y_encoded,
+    sample_ids=sample_ids,
+    outer_cv=outer_cv,
+    inner_cv=inner_cv
+)
+
+# CELL 19
+# ==========================================================
+# Cell 18: Compare recurrent genes across 3 selected pipelines
+# ==========================================================
+
+# Retrieve gene-selection frequency tables
+freq_anova_lr = results_lr["gene_frequency"].copy()
+freq_anova_lsvm = results_lsvm["gene_frequency"].copy()
+freq_pca_lsvm = results_pca_lsvm["gene_frequency"].copy()
+
+# Rename frequency columns for comparison
+freq_anova_lr = freq_anova_lr[
+    ["Gene", "Selection_Count", "Selection_Percentage"]
+].rename(columns={
+    "Selection_Count": "ANOVA_LR_Count",
+    "Selection_Percentage": "ANOVA_LR_Percent"
+})
+
+freq_anova_lsvm = freq_anova_lsvm[
+    ["Gene", "Selection_Count", "Selection_Percentage"]
+].rename(columns={
+    "Selection_Count": "ANOVA_LinearSVM_Count",
+    "Selection_Percentage": "ANOVA_LinearSVM_Percent"
+})
+
+freq_pca_lsvm = freq_pca_lsvm[
+    ["Gene", "Selection_Count", "Selection_Percentage"]
+].rename(columns={
+    "Selection_Count": "PCA_LinearSVM_Count",
+    "Selection_Percentage": "PCA_LinearSVM_Percent"
+})
+
+# Merge all genes
+comparison = (
+    freq_anova_lr
+    .merge(freq_anova_lsvm, on="Gene", how="outer")
+    .merge(freq_pca_lsvm, on="Gene", how="outer")
+    .fillna(0)
+)
+
+# Number of pipelines in which each gene was selected at least once
+comparison["Pipelines_Selected"] = (
+    (comparison["ANOVA_LR_Count"] > 0).astype(int) +
+    (comparison["ANOVA_LinearSVM_Count"] > 0).astype(int) +
+    (comparison["PCA_LinearSVM_Count"] > 0).astype(int)
+)
+
+# Mean recurrence across the three pipelines
+comparison["Mean_Selection_Percent"] = comparison[
+    [
+        "ANOVA_LR_Percent",
+        "ANOVA_LinearSVM_Percent",
+        "PCA_LinearSVM_Percent"
+    ]
+].mean(axis=1)
+
+# Sort strongest consensus genes first
+comparison = comparison.sort_values(
+    ["Pipelines_Selected", "Mean_Selection_Percent"],
+    ascending=[False, False]
+).reset_index(drop=True)
+
+print("Top 30 genes across the three pipelines:")
+display(comparison.head(30))
+
+# Save
+comparison.to_csv(
+    "Consensus_gene_selection_comparison.csv",
+    index=False
+)
+
+print("\n✓ Consensus comparison saved.")
+
+# CELL 20
+# ==========================================
+# Cell 19: Define robust consensus genes
+# ==========================================
+
+# Count how many pipelines show >=50% recurrence
+comparison["Pipelines_50pct_or_more"] = (
+    (comparison["ANOVA_LR_Percent"] >= 50).astype(int) +
+    (comparison["ANOVA_LinearSVM_Percent"] >= 50).astype(int) +
+    (comparison["PCA_LinearSVM_Percent"] >= 50).astype(int)
+)
+
+# Consensus rule:
+# gene must reach >=50% recurrence in at least 2 of 3 pipelines
+robust_consensus = comparison[
+    comparison["Pipelines_50pct_or_more"] >= 2
+].copy()
+
+robust_consensus = robust_consensus.sort_values(
+    ["Pipelines_50pct_or_more", "Mean_Selection_Percent"],
+    ascending=[False, False]
+).reset_index(drop=True)
+
+print("Number of robust consensus genes:",
+      len(robust_consensus))
+
+display(robust_consensus)
+
+robust_consensus.to_csv(
+    "Robust_consensus_genes_50pct_2of3.csv",
+    index=False
+)
+
+print("\n✓ Robust consensus genes saved.")
+
+# CELL 21
+# ======================================================
+# Cell 20: Sensitivity of consensus gene threshold
+# ======================================================
+
+thresholds = [50, 60, 70, 80, 90]
+
+rows = []
+
+for threshold in thresholds:
+    counts = (
+        (comparison["ANOVA_LR_Percent"] >= threshold).astype(int) +
+        (comparison["ANOVA_LinearSVM_Percent"] >= threshold).astype(int) +
+        (comparison["PCA_LinearSVM_Percent"] >= threshold).astype(int)
+    )
+
+    rows.append({
+        "Recurrence_threshold": threshold,
+        "At_least_1_of_3": (counts >= 1).sum(),
+        "At_least_2_of_3": (counts >= 2).sum(),
+        "All_3": (counts == 3).sum()
+    })
+
+threshold_sensitivity = pd.DataFrame(rows)
+
+display(threshold_sensitivity)
+
+threshold_sensitivity.to_csv(
+    "Consensus_threshold_sensitivity.csv",
+    index=False
+)
+
+# CELL 22
+# ==========================================================
+# Cell 21: Strict cross-pipeline consensus genes
+# ==========================================================
+
+strict_consensus = comparison[
+    (comparison["ANOVA_LR_Percent"] >= 50) &
+    (comparison["ANOVA_LinearSVM_Percent"] >= 50) &
+    (comparison["PCA_LinearSVM_Percent"] >= 50)
+].copy()
+
+strict_consensus = strict_consensus.sort_values(
+    "Mean_Selection_Percent",
+    ascending=False
+).reset_index(drop=True)
+
+print("Strict consensus genes:", len(strict_consensus))
+print(
+    "Criterion: >=50% selection frequency in ALL THREE pipelines\n"
+)
+
+display(
+    strict_consensus[
+        [
+            "Gene",
+            "ANOVA_LR_Percent",
+            "ANOVA_LinearSVM_Percent",
+            "PCA_LinearSVM_Percent",
+            "Mean_Selection_Percent"
+        ]
+    ]
+)
+
+strict_consensus.to_csv(
+    "Strict_consensus_genes_all3_50pct.csv",
+    index=False
+)
+
+print("\n✓ Strict consensus gene table saved.")
+
+# CELL 23
+# ==========================================================
+# Cell 22: Inspect ANOVA-LR hyperparameter stability
+# ==========================================================
+
+params_lr = results_lr["best_params"].copy()
+
+print("Number of outer-fold parameter records:", len(params_lr))
+print("\nColumns:")
+print(params_lr.columns.tolist())
+
+print("\nFirst 10 records:")
+display(params_lr.head(10))
+
+# Frequency of complete hyperparameter combinations
+param_cols = [c for c in params_lr.columns if c != "Fold"]
+
+param_frequency = (
+    params_lr
+    .groupby(param_cols, dropna=False)
+    .size()
+    .reset_index(name="Selection_Count")
+    .sort_values("Selection_Count", ascending=False)
+    .reset_index(drop=True)
+)
+
+param_frequency["Selection_Percent"] = (
+    param_frequency["Selection_Count"] / len(params_lr) * 100
+)
+
+print("\nMost frequently selected LR hyperparameter combinations:")
+display(param_frequency)
+
+param_frequency.to_csv(
+    "ANOVA_LR_hyperparameter_frequency.csv",
+    index=False
+)
+
+print("\n✓ LR hyperparameter frequency saved.")
+
+# CELL 24
+# ==========================================================
+# Robust summary of ANOVA-LR hyperparameter frequency
+# ==========================================================
+
+import pandas as pd
+import json
+from collections import Counter
+
+params_lr = results_lr["best_params"].copy()
+
+# Convert each Best_Params entry into a normal dictionary
+def normalize_params(x):
+    # Already a dictionary
+    if isinstance(x, dict):
+        return x
+
+    # JSON-like/string representation
+    if isinstance(x, str):
+        try:
+            return json.loads(x)
+        except:
+            # handle Python-style None/True/False strings
+            return eval(x, {"__builtins__": {}}, {})
+
+    # Fallback
+    return dict(x)
+
+parsed_params = params_lr["Best_Params"].apply(normalize_params)
+
+# Convert dicts into sorted tuples so they can be counted
+param_keys = parsed_params.apply(
+    lambda d: tuple(sorted(d.items()))
+)
+
+counts = Counter(param_keys)
+
+rows = []
+
+for combo, count in counts.most_common():
+    d = dict(combo)
+
+    row = d.copy()
+    row["Selection_Count"] = count
+    row["Selection_Percent"] = 100 * count / len(params_lr)
+
+    rows.append(row)
+
+lr_param_frequency = pd.DataFrame(rows)
+
+print("Number of outer-fold records:", len(params_lr))
+print("Number of unique hyperparameter combinations:",
+      len(lr_param_frequency))
+
+display(lr_param_frequency)
+
+lr_param_frequency.to_csv(
+    "ANOVA_LR_hyperparameter_frequency_CORRECT.csv",
+    index=False
+)
+
+print("\n✓ Correct LR hyperparameter frequency saved.")
+
+# CELL 25
+# ==========================================================
+# Cell 23: Tune FINAL Logistic Regression using frozen 8 genes
+# ==========================================================
+
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import GridSearchCV
+
+# Freeze the 8 consensus genes
+FROZEN_GENES = strict_consensus["Gene"].tolist()
+
+print("Frozen genes:", len(FROZEN_GENES))
+print(FROZEN_GENES)
+
+# Discovery matrix restricted ONLY to frozen genes
+X_frozen = X[FROZEN_GENES].copy()
+
+# Final LR pipeline
+final_lr_pipe = Pipeline([
+    ("scale", StandardScaler()),
+    ("clf", LogisticRegression(
+        penalty="l2",
+        solver="liblinear",
+        max_iter=5000,
+        random_state=RANDOM_STATE
+    ))
+])
+
+# Tune only classifier parameters
+final_lr_grid = {
+    "clf__C": [0.01, 0.1, 1, 10, 100],
+    "clf__class_weight": [None, "balanced"]
+}
+
+# Use the SAME inner repeated CV design already defined
+final_lr_search = GridSearchCV(
+    estimator=final_lr_pipe,
+    param_grid=final_lr_grid,
+    scoring="balanced_accuracy",
+    cv=inner_cv,
+    n_jobs=-1,
+    refit=True
+)
+
+final_lr_search.fit(X_frozen, y_encoded)
+
+print("\nBest final LR parameters:")
+print(final_lr_search.best_params_)
+
+print("\nBest discovery CV balanced accuracy:")
+print(round(final_lr_search.best_score_, 4))
+
+# CELL 26
+# ==========================================================
+# Cell 24: Fit and FREEZE final 8-gene Logistic Regression
+# ==========================================================
+
+import joblib
+import pandas as pd
+import json
+
+# ----------------------------------------------------------
+# 1. Frozen gene panel
+# ----------------------------------------------------------
+
+FROZEN_GENES = [
+    "LOC112784224",
+    "LOC112733679",
+    "LOC112775500",
+    "LOC112795505",
+    "LOC112720488",
+    "LOC112741057",
+    "LOC112755969",
+    "LOC112790749"
+]
+
+X_final = X[FROZEN_GENES].copy()
+
+# ----------------------------------------------------------
+# 2. Final model specification
+#    determined BEFORE external validation
+# ----------------------------------------------------------
+
+final_frozen_model = Pipeline([
+    ("scale", StandardScaler()),
+    ("clf", LogisticRegression(
+        penalty="l2",
+        C=10,
+        class_weight=None,
+        solver="liblinear",
+        max_iter=5000,
+        random_state=RANDOM_STATE
+    ))
+])
+
+# ----------------------------------------------------------
+# 3. Fit ONCE using all 42 discovery samples
+# ----------------------------------------------------------
+
+final_frozen_model.fit(X_final, y_encoded)
+
+print("✓ Final frozen LR model fitted on all discovery samples.")
+print("Samples:", X_final.shape[0])
+print("Genes:", X_final.shape[1])
+
+# ----------------------------------------------------------
+# 4. Save complete fitted pipeline
+# ----------------------------------------------------------
+
+joblib.dump(
+    final_frozen_model,
+    "FINAL_FROZEN_8GENE_LR_MODEL.joblib"
+)
+
+# Save frozen genes
+pd.DataFrame({
+    "Gene": FROZEN_GENES
+}).to_csv(
+    "FINAL_FROZEN_8GENE_PANEL.csv",
+    index=False
+)
+
+# ----------------------------------------------------------
+# 5. Save model coefficients
+# ----------------------------------------------------------
+
+coef_df = pd.DataFrame({
+    "Gene": FROZEN_GENES,
+    "Coefficient": final_frozen_model.named_steps["clf"].coef_[0]
+})
+
+coef_df["Absolute_Coefficient"] = coef_df["Coefficient"].abs()
+
+coef_df = coef_df.sort_values(
+    "Absolute_Coefficient",
+    ascending=False
+)
+
+coef_df.to_csv(
+    "FINAL_FROZEN_8GENE_LR_COEFFICIENTS.csv",
+    index=False
+)
+
+# ----------------------------------------------------------
+# 6. Save exact model specification
+# ----------------------------------------------------------
+
+model_specification = {
+    "Number_of_genes": 8,
+    "Genes": FROZEN_GENES,
+    "Classifier": "LogisticRegression",
+    "Penalty": "l2",
+    "C": 10,
+    "Class_weight": None,
+    "Solver": "liblinear",
+    "Scaling": "StandardScaler",
+    "Random_state": RANDOM_STATE,
+    "Discovery_samples": 42,
+    "External_data_used_for_selection": False
+}
+
+with open(
+    "FINAL_FROZEN_MODEL_SPECIFICATION.json",
+    "w"
+) as f:
+    json.dump(model_specification, f, indent=4)
+
+print("\nFrozen genes:")
+print(FROZEN_GENES)
+
+print("\nModel coefficients:")
+display(coef_df)
+
+print("\n✓ MODEL AND GENE PANEL ARE NOW FROZEN.")
+print("✓ No external data have been used.")
+print("✓ Do not change genes or hyperparameters after this point.")
+
+# CELL 27
+from google.colab import files
+
+uploaded = files.upload()
+
+# CELL 28
+import pandas as pd
+
+jiang_ext = pd.read_csv("Jiang_external_frozen8_VST.csv")
+sun_ext = pd.read_csv("Sun_external_frozen8_VST.csv")
+
+print("Jiang:", jiang_ext.shape)
+print("Sun:", sun_ext.shape)
+
+display(jiang_ext.head())
+display(sun_ext.head())
+
+# CELL 29
+print("Final search object:")
+print(final_lr_search)
+
+print("\nBest estimator:")
+print(final_lr_search.best_estimator_)
+
+print("\nPipeline steps:")
+print(final_lr_search.best_estimator_.named_steps)
+
+print("\nFrozen genes:")
+print(frozen_genes)
+
+# CELL 30
+# ==========================================
+# Restore frozen 8-gene list
+# ==========================================
+
+FROZEN_GENES = [
+    "LOC112784224",
+    "LOC112733679",
+    "LOC112775500",
+    "LOC112795505",
+    "LOC112720488",
+    "LOC112741057",
+    "LOC112755969",
+    "LOC112790749"
+]
+
+print("Frozen genes:", len(FROZEN_GENES))
+print(FROZEN_GENES)
+
+# CELL 31
+frozen_model = final_lr_search.best_estimator_
+
+# CELL 32
+# ==========================================
+# External validation: Jiang and Sun
+# ==========================================
+
+import numpy as np
+import pandas as pd
+
+from sklearn.metrics import (
+    balanced_accuracy_score,
+    f1_score,
+    matthews_corrcoef,
+    roc_auc_score,
+    confusion_matrix
+)
+
+def validate_external(df, dataset_name):
+    # Keep frozen genes in exact training order
+    X_ext = df[FROZEN_GENES].copy()
+
+    # Encode labels exactly as in discovery analysis
+    y_true = df["Condition"].map({
+        "Control": 0,
+        "Drought": 1
+    }).values
+
+    # Frozen-model predictions
+    y_pred = frozen_model.predict(X_ext)
+    y_prob = frozen_model.predict_proba(X_ext)[:, 1]
+
+    # Metrics
+    ba = balanced_accuracy_score(y_true, y_pred)
+    f1 = f1_score(y_true, y_pred)
+    mcc = matthews_corrcoef(y_true, y_pred)
+    auc = roc_auc_score(y_true, y_prob)
+
+    tn, fp, fn, tp = confusion_matrix(
+        y_true,
+        y_pred,
+        labels=[0, 1]
+    ).ravel()
+
+    sensitivity = tp / (tp + fn)
+    specificity = tn / (tn + fp)
+    accuracy = (tp + tn) / len(y_true)
+
+    summary = pd.DataFrame([{
+        "Dataset": dataset_name,
+        "N": len(y_true),
+        "Balanced_Accuracy": ba,
+        "Accuracy": accuracy,
+        "F1": f1,
+        "MCC": mcc,
+        "ROC_AUC": auc,
+        "Sensitivity": sensitivity,
+        "Specificity": specificity,
+        "TN": tn,
+        "FP": fp,
+        "FN": fn,
+        "TP": tp
+    }])
+
+    predictions = pd.DataFrame({
+        "SampleID": df["SampleID"],
+        "True_Condition": df["Condition"],
+        "Predicted_Condition": np.where(
+            y_pred == 1,
+            "Drought",
+            "Control"
+        ),
+        "Drought_Probability": y_prob
+    })
+
+    return summary, predictions
+
+
+jiang_summary, jiang_predictions = validate_external(
+    jiang_ext,
+    "Jiang"
+)
+
+sun_summary, sun_predictions = validate_external(
+    sun_ext,
+    "Sun"
+)
+
+external_summary = pd.concat(
+    [jiang_summary, sun_summary],
+    ignore_index=True
+)
+
+print("External validation summary:")
+display(external_summary)
+
+print("\nJiang predictions:")
+display(jiang_predictions)
+
+print("\nSun predictions:")
+display(sun_predictions)
+
+# Save everything
+external_summary.to_csv(
+    "FINAL_external_validation_summary.csv",
+    index=False
+)
+
+jiang_predictions.to_csv(
+    "Jiang_frozen8_external_predictions.csv",
+    index=False
+)
+
+sun_predictions.to_csv(
+    "Sun_frozen8_external_predictions.csv",
+    index=False
+)
+
+print("\n✓ External validation completed without refitting.")
+
+# CELL 33
+external_summary
+
+# CELL 34
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.metrics import ConfusionMatrixDisplay
+
+# Confusion matrices from the external-validation results
+# Format:
+# [[TN, FP],
+#  [FN, TP]]
+
+cm_657965 = np.array([
+    [6, 0],
+    [1, 17]
+])
+
+cm_935509 = np.array([
+    [6, 0],
+    [2, 10]
+])
+
+class_labels = ["Control", "Drought"]
+
+# Create combined publication-ready figure
+fig, axes = plt.subplots(1, 2, figsize=(10, 4.5))
+
+# Panel A
+disp1 = ConfusionMatrixDisplay(
+    confusion_matrix=cm_657965,
+    display_labels=class_labels
+)
+disp1.plot(
+    ax=axes[0],
+    values_format="d",
+    colorbar=False
+)
+
+axes[0].set_title(
+    "A  PRJNA657965",
+    fontsize=14,
+    fontweight="bold"
+)
+axes[0].set_xlabel("Predicted condition", fontsize=12)
+axes[0].set_ylabel("True condition", fontsize=12)
+
+# Panel B
+disp2 = ConfusionMatrixDisplay(
+    confusion_matrix=cm_935509,
+    display_labels=class_labels
+)
+disp2.plot(
+    ax=axes[1],
+    values_format="d",
+    colorbar=False
+)
+
+axes[1].set_title(
+    "B  PRJNA935509",
+    fontsize=14,
+    fontweight="bold"
+)
+axes[1].set_xlabel("Predicted condition", fontsize=12)
+axes[1].set_ylabel("True condition", fontsize=12)
+
+plt.tight_layout()
+
+# Save high-resolution figure
+plt.savefig(
+    "External_Validation_Confusion_Matrices.png",
+    dpi=600,
+    bbox_inches="tight"
+)
+
+plt.show()
+
+# CELL 35
+import numpy as np
+import matplotlib.pyplot as plt
+
+cm1 = np.array([[6, 0],
+                [1, 17]])
+
+cm2 = np.array([[6, 0],
+                [2, 10]])
+
+labels = ["Control", "Drought"]
+
+fig, axes = plt.subplots(1, 2, figsize=(10, 4.5))
+
+# Same scale for BOTH panels
+vmax = max(cm1.max(), cm2.max())
+
+for ax, cm, title in zip(
+    axes,
+    [cm1, cm2],
+    ["A  PRJNA657965", "B  PRJNA935509"]
+):
+    im = ax.imshow(cm, cmap="Blues", vmin=0, vmax=vmax)
+
+    ax.set_xticks([0, 1])
+    ax.set_yticks([0, 1])
+    ax.set_xticklabels(labels)
+    ax.set_yticklabels(labels)
+
+    ax.set_xlabel("Predicted condition", fontsize=12)
+    ax.set_ylabel("True condition", fontsize=12)
+    ax.set_title(title, fontsize=14, fontweight="bold")
+
+    # Add counts with readable text
+    for i in range(2):
+        for j in range(2):
+            text_color = "white" if cm[i, j] > vmax/2 else "black"
+            ax.text(
+                j, i, str(cm[i, j]),
+                ha="center",
+                va="center",
+                fontsize=14,
+                fontweight="bold",
+                color=text_color
+            )
+
+plt.tight_layout()
+
+plt.savefig(
+    "External_Validation_Confusion_Matrices_PUBLICATION.png",
+    dpi=600,
+    bbox_inches="tight"
+)
+
+plt.show()
+
+# CELL 36
+import numpy as np
+import matplotlib.pyplot as plt
+
+# External-validation confusion matrices
+cm1 = np.array([
+    [6, 0],
+    [1, 17]
+])
+
+cm2 = np.array([
+    [6, 0],
+    [2, 10]
+])
+
+labels = ["Control", "Drought"]
+
+# Same color scale for both panels
+vmax = max(cm1.max(), cm2.max())
+
+fig, axes = plt.subplots(1, 2, figsize=(10, 4.5))
+
+for ax, cm, title in zip(
+    axes,
+    [cm1, cm2],
+    ["A  PRJNA657965", "B  PRJNA935509"]
+):
+    ax.imshow(
+        cm,
+        cmap="Blues",
+        vmin=0,
+        vmax=vmax
+    )
+
+    ax.set_xticks([0, 1])
+    ax.set_yticks([0, 1])
+    ax.set_xticklabels(labels, fontsize=11)
+    ax.set_yticklabels(labels, fontsize=11)
+
+    # Match terminology used in the earlier manuscript figure
+    ax.set_xlabel("Predicted label", fontsize=12)
+    ax.set_ylabel("True label", fontsize=12)
+
+    ax.set_title(
+        title,
+        fontsize=14,
+        fontweight="bold",
+        pad=10
+    )
+
+    # Cell counts
+    for i in range(2):
+        for j in range(2):
+            color = "white" if cm[i, j] > vmax / 2 else "black"
+
+            ax.text(
+                j,
+                i,
+                str(cm[i, j]),
+                ha="center",
+                va="center",
+                fontsize=14,
+                fontweight="bold",
+                color=color
+            )
+
+# Keep panels well spaced
+plt.tight_layout(w_pad=3)
+
+# Save publication-quality figure
+plt.savefig(
+    "External_Validation_Confusion_Matrices_FINAL.png",
+    dpi=600,
+    bbox_inches="tight"
+)
+
+plt.show()
+
+# CELL 37
+# ==========================================================
+# Bootstrap 95% CIs for external validation metrics
+# ==========================================================
+
+import numpy as np
+import pandas as pd
+
+from sklearn.metrics import (
+    balanced_accuracy_score,
+    f1_score,
+    matthews_corrcoef,
+    roc_auc_score
+)
+
+RNG = np.random.default_rng(42)
+
+def bootstrap_metric_ci(df, n_boot=5000):
+    X_ext = df[FROZEN_GENES].copy()
+
+    y_true = df["Condition"].map({
+        "Control": 0,
+        "Drought": 1
+    }).values
+
+    y_pred = frozen_model.predict(X_ext)
+    y_prob = frozen_model.predict_proba(X_ext)[:, 1]
+
+    metrics = {
+        "Balanced_Accuracy": lambda yt, yp, pr: balanced_accuracy_score(yt, yp),
+        "F1": lambda yt, yp, pr: f1_score(yt, yp),
+        "MCC": lambda yt, yp, pr: matthews_corrcoef(yt, yp),
+        "ROC_AUC": lambda yt, yp, pr: roc_auc_score(yt, pr)
+    }
+
+    results = []
+
+    for metric_name, metric_func in metrics.items():
+
+        boot_vals = []
+
+        for _ in range(n_boot):
+            idx = RNG.integers(0, len(y_true), len(y_true))
+
+            yt = y_true[idx]
+            yp = y_pred[idx]
+            pr = y_prob[idx]
+
+            # Need both classes present for balanced accuracy / ROC-AUC
+            if len(np.unique(yt)) < 2:
+                continue
+
+            try:
+                val = metric_func(yt, yp, pr)
+                boot_vals.append(val)
+            except:
+                continue
+
+        boot_vals = np.array(boot_vals)
+
+        point_estimate = metric_func(y_true, y_pred, y_prob)
+
+        lower = np.percentile(boot_vals, 2.5)
+        upper = np.percentile(boot_vals, 97.5)
+
+        results.append({
+            "Metric": metric_name,
+            "Estimate": point_estimate,
+            "CI_Lower_95": lower,
+            "CI_Upper_95": upper,
+            "Bootstrap_Replicates_Used": len(boot_vals)
+        })
+
+    return pd.DataFrame(results)
+
+
+jiang_ci = bootstrap_metric_ci(jiang_ext, n_boot=5000)
+sun_ci = bootstrap_metric_ci(sun_ext, n_boot=5000)
+
+jiang_ci.insert(0, "Dataset", "Jiang")
+sun_ci.insert(0, "Dataset", "Sun")
+
+external_ci = pd.concat(
+    [jiang_ci, sun_ci],
+    ignore_index=True
+)
+
+display(external_ci)
+
+external_ci.to_csv(
+    "FINAL_external_validation_95CI.csv",
+    index=False
+)
+
+print("✓ Bootstrap 95% confidence intervals calculated.")

@@ -1,0 +1,13 @@
+recursive-include examples *.py *.csv
+recursive-include docs *.md *.json *.txt *.csv
+recursive-include tests *.py
+recursive-include provenance *.txt *.ipynb
+include requirements-notebook.txt
+include LICENSE-NOTICE.txt
+include CITATION.cff
+recursive-include provenance *.csv
+recursive-include docs *.py *.png
+
+recursive-include examples *.ipynb
+
+include LICENSE
