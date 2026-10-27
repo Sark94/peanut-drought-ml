@@ -24,11 +24,6 @@ Use Python 3.10–3.12 in a virtual environment. From this directory:
 python -m pip install .
 ```
 
-Or install the included wheel:
-
-```bash
-python -m pip install dist/peanut_drought_ml-0.1.1-py3-none-any.whl
-```
 
 For the closest match to the source notebook, use Python 3.12 and install
 `requirements-notebook.txt` before installing this package. The current environment
