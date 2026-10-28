@@ -6,8 +6,8 @@ version: 0.1.1
 authors:
   - given-names: Frederick Sarkodie
     family-names: Mensah
-  - given-names: Muhammed Opoku
-    family-names: Gyamfi
+  - given-names: Muhammed 
+    family-names: Opoku Gyamfi
 abstract: "Reusable nested cross-validation, feature recurrence, and frozen-panel evaluation derived from the author's peanut drought ML notebook."
 license: MIT
 repository-code: "https://github.com/Sark94/peanut-drought-ml"
