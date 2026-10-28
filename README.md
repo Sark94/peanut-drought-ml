@@ -159,14 +159,15 @@ If this package contributes to your research, please cite the software and the
 original analysis that it builds on. This is a scholarly request, not an extra
 condition of the MIT license.
 
-**Package citation (local draft; no package DOI assigned yet):**
+**Package citation:**
 
-Mensah, Frederick Sarkodie, and Gyamfi, Muhammed Opoku. Peanut Drought ML
-(Version 0.1.1) [Computer software].
+Mensah, Frederick Sarkodie, and Opoku Gyamfi, Muhammed.
+Peanut Drought ML (Version 0.1.1) [Computer software]. Zenodo.
+https://doi.org/10.5281/zenodo.23719234
 
-After public archiving, cite the package's own version DOI here. The original
-analysis DOI below identifies the earlier deposit, not this package release.
-CITATION.cff provides the package authors and version in machine-readable form.
+The package DOI is reserved and will become active when the Zenodo
+record is published. CITATION.cff provides the package authors,
+version, and DOI in machine-readable form.
 
 **Original analysis:**
 
